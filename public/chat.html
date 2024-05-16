@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Chat Example</title>
+<script type="text/javascript">
+window.onload = function () {
+    var conn;
+    var username = "";
+    var participants = {};
+    var msg = document.getElementById("msg");
+    var log = document.getElementById("log");
+    var participantsEl = document.getElementById("participants");
+
+    function appendLog(item) {
+        var doScroll = log.scrollTop > log.scrollHeight - log.clientHeight - 1;
+        log.appendChild(item);
+        if (doScroll) {
+            log.scrollTop = log.scrollHeight - log.clientHeight;
+        }
+    }
+
+    // Update the participants list
+    function updateParticipantList() {
+        if ( ! participants) return;
+        
+        participantsEl.innerHTML = "";
+        for (var participant in participants) {
+            var item = document.createElement("li");
+            item.innerHTML += participant;
+            participantsEl.appendChild(item);
+        }
+    }
+
+    document.getElementById("form").onsubmit = function () {
+        if (!conn) {
+            return false;
+        }
+        if (!msg.value) {
+            return false;
+        }
+        conn.send(msg.value);
+
+        // Add the message to the chat area on submit since
+        // the server won't be sending this message back.
+        var item = document.createElement("div");
+        item.innerHTML = "<b>" + username + "</b>: " + msg.value;
+        appendLog(item);
+
+        msg.value = "";
+        return false;
+    };
+
+    if (window["WebSocket"]) {
+        conn = new WebSocket("ws://" + document.location.host + "/ws" + document.location.pathname);
+
+        conn.onclose = function (evt) {
+            delete participants[username];
+            updateParticipantList();
+            var item = document.createElement("div");
+            item.innerHTML = "<b>Connection closed.</b>";
+            appendLog(item);
+        };
+
+        conn.onmessage = function (evt) {
+            var messages = evt.data.split('\n');
+            for (var i = 0; i < messages.length; i++) {
+                var item = document.createElement("div");
+                const msgObj = JSON.parse(messages[i]);
+                if (msgObj.action === 'joined') {
+                    // If the username is not set, set it to
+                    // the first user to join the room which
+                    // should be this user.
+                    if (username === "") {
+                        username = msgObj.sender;
+                    }
+
+                    // Update participant list, if included.
+					if (msgObj.participants) {
+						participants = msgObj.participants;
+					}
+					// Add sender to the list of participants
+					// in case it's not already there.
+					participants[msgObj.sender] = true;
+					updateParticipantList();
+
+                    // Add system message to chat area
+                    // letting everyone know that this
+                    // user has joined the chat.
+                    var joinedMessage = msgObj.sender + " has joined the room.";
+                    item.innerHTML = "<i>" + joinedMessage + "</i>";
+				} else if (msgObj.action === 'left') {
+					// Remove sender from the list of participants
+					delete participants[msgObj.sender];
+					updateParticipantList();
+					var leftMessage = msgObj.sender + " has left the room.";
+					item.innerHTML = "<i>" + leftMessage + "</i>";
+				} else if (msgObj.action === 'message') {
+					// Add sender to the list of participants
+					participants[msgObj.sender] = true;
+					updateParticipantList();
+
+                    item.innerHTML = "<b>" + msgObj.sender + "</b>: " + msgObj.message;
+				}
+                appendLog(item);
+            }
+        };
+    } else {
+        var item = document.createElement("div");
+        item.innerHTML = "<b>Your browser does not support WebSockets.</b>";
+        appendLog(item);
+    }
+};
+</script>
+<style type="text/css">
+html {
+    overflow: hidden;
+}
+
+body {
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: gray;
+}
+
+#log {
+    background: white;
+    margin: 0;
+    padding: 0.5em;
+    position: absolute;
+    top: 0.5em;
+    left: 0.5em;
+    right: 0.5em;
+    bottom: 3em;
+    overflow: auto;
+}
+
+#participants {
+    background: white;
+    margin: 0;
+    padding: 0.5em 0.5em 0.5em 0.5em;
+    position: absolute;
+    top: 0.5em;
+    right: 0.5em;
+    bottom: 3em;
+    width: 20%;
+    overflow: auto;
+    list-style-type: none;
+    border: 1px solid black;
+    border-radius: 5px;
+    padding: 0.5em;
+    /* font-size: 0.8em; */
+}
+
+#form {
+    padding: 0 0.5em 0 0.5em;
+    margin: 0;
+    position: absolute;
+    bottom: 1em;
+    left: 0px;
+    width: 100%;
+    overflow: hidden;
+}
+
+</style>
+</head>
+<body>
+<div id="log"></div>
+<form id="form">
+    <input type="submit" value="Send" />
+    <input type="text" id="msg" size="64" autofocus />
+</form>
+<ul id="participants"></ul>
+</body>
+</html>
