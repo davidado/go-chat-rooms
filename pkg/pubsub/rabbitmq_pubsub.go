@@ -51,12 +51,14 @@ func (ps *RabbitMQPubSub) Publish(topic string, m chat.Message) error {
 	ch, err := ps.conn.Channel()
 	if err != nil {
 		log.Println("error creating channel:", err)
+		return err
 	}
 	defer ch.Close()
 
 	q, err := configureQueue(ch, topic)
 	if err != nil {
 		log.Println("error declaring queue:", err)
+		return err
 	}
 
 	ctx, cancel := context.WithTimeout(ps.ctx, 5*time.Second)
@@ -101,6 +103,7 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 	q, err := configureQueue(ch, room.Name)
 	if err != nil {
 		log.Println("error declaring queue:", err)
+		return
 	}
 
 	msgs, err := ch.Consume(
@@ -114,6 +117,7 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 	)
 	if err != nil {
 		log.Println("error consuming messages:", err)
+		return
 	}
 
 	log.Printf(" [*] %s waiting for messages.", room.Name)
