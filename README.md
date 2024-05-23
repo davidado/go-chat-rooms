@@ -26,7 +26,7 @@ This chat application is deployable to multiple servers behind a load balancer. 
 
 1. Execute `make run` in the root path (same directory as the Makefile).
 
-2. Go to http://localhost:8080/<room> where <room> can be anything you choose. 
+2. Go to http://localhost:8080/[room] where [room] can be anything you choose. 
 
 3. Test the room by going to the same URL in another tab or browser and type away.
 
