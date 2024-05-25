@@ -25,13 +25,8 @@ func NewRedisPubSub(ctx context.Context, conn *redis.Client) *RedisPubSub {
 }
 
 // Publish publishes a message to a topic.
-func (ps *RedisPubSub) Publish(topic string, m chat.Message) error {
-	b, err := m.Marshal()
-	if err != nil {
-		log.Println("error marshalling message:", err)
-		return err
-	}
-	err = ps.conn.Publish(ps.ctx, topic, b).Err()
+func (ps *RedisPubSub) Publish(topic string, msg []byte) error {
+	err := ps.conn.Publish(ps.ctx, topic, msg).Err()
 	if err != nil {
 		return err
 	}
@@ -47,12 +42,12 @@ func (ps *RedisPubSub) SubscribeAndBroadcast(room *chat.Room) {
 	defer func() {
 		err := subscriber.Unsubscribe(ps.ctx, room.Name)
 		if err != nil {
-			log.Println("error cancelling consumer:", err)
+			log.Println("SubscribeAndBroadcast - error cancelling consumer:", err)
 		}
-		log.Println("unsubscribed from topic", room.Name)
+		fmt.Println("unsubscribed from topic", room.Name)
 	}()
 
-	fmt.Printf(" [*] %s waiting for messages.", room.Name)
+	fmt.Printf(" [*] %s waiting for messages.\n", room.Name)
 
 	for {
 		select {
@@ -62,7 +57,7 @@ func (ps *RedisPubSub) SubscribeAndBroadcast(room *chat.Room) {
 			msg := chat.Message{}
 			err := msg.Unmarshal([]byte(b.Payload))
 			if err != nil {
-				log.Print("error unmarshalling message:", err)
+				log.Print("SubscribeAndBroadcast - error unmarshalling message:", err)
 				continue
 			}
 

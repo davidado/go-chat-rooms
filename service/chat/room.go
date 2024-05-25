@@ -8,7 +8,7 @@ import (
 // PubSubber is an interface for subscribing to a room and
 // publishing messages to it.
 type PubSubber interface {
-	Publish(topic string, m Message) error
+	Publish(topic string, msg []byte) error
 	SubscribeAndBroadcast(room *Room)
 }
 
@@ -80,11 +80,15 @@ func (r *Room) Run(rooms *Rooms) {
 
 			// End this goroutine when this client leaves.
 			return
-		case message := <-r.broadcast:
+		case msg := <-r.broadcast:
 			// Broadcast the message to the room.
-			err := r.Pubsub.Publish(r.Name, message)
+			b, err := msg.Marshal()
 			if err != nil {
-				log.Println("error publishing message:", err)
+				log.Println("Run - error marshalling message:", err)
+			}
+			err = r.Pubsub.Publish(r.Name, b)
+			if err != nil {
+				log.Println("Run - error publishing message:", err)
 			}
 		}
 	}
@@ -100,24 +104,31 @@ func (r *Room) closeIfEmpty(rooms *Rooms) {
 
 func (r *Room) broadcastClientExit(c *Client) {
 	m := NewMessage(r.Name, c.name, []byte(""), LeaveAction)
-	err := r.Pubsub.Publish(r.Name, m)
+	b, err := m.Marshal()
 	if err != nil {
-		log.Println("error publishing message:", err)
+		log.Println("broadcastClientExit - error marshalling message:", err)
+	}
+	err = r.Pubsub.Publish(r.Name, b)
+	if err != nil {
+		log.Println("broadcastClientExit - error publishing message:", err)
 	}
 }
 
 func (r *Room) broadcastNewClientEntry(c *Client) {
 	m := NewMessage(r.Name, c.name, []byte(""), JoinAction)
-
 	if r.Clients.NumClients() == 1 {
 		// If the client is the first one in the room,
 		// there is no need to broadcast to the pubsub
 		// topic so just use the local broadcast channel.
 		r.Broadcast(m)
 	} else {
-		err := r.Pubsub.Publish(r.Name, m)
+		b, err := m.Marshal()
 		if err != nil {
-			log.Println("error publishing message:", err)
+			log.Println("broadcastNewClientEntry - error marshalling message:", err)
+		}
+		err = r.Pubsub.Publish(r.Name, b)
+		if err != nil {
+			log.Println("broadcastNewClientEntry - error publishing message:", err)
 		}
 	}
 }

@@ -42,13 +42,7 @@ func configureQueue(ch *amqp.Channel, topic string) (*amqp.Queue, error) {
 }
 
 // Publish publishes a message to a topic.
-func (ps *RabbitMQPubSub) Publish(topic string, m chat.Message) error {
-	b, err := m.Marshal()
-	if err != nil {
-		log.Println("error marshalling message:", err)
-		return err
-	}
-
+func (ps *RabbitMQPubSub) Publish(topic string, msg []byte) error {
 	ch, err := ps.conn.Channel()
 	if err != nil {
 		log.Println("error creating channel:", err)
@@ -73,7 +67,7 @@ func (ps *RabbitMQPubSub) Publish(topic string, m chat.Message) error {
 		false,
 		amqp.Publishing{
 			ContentType: "text/plain",
-			Body:        b,
+			Body:        msg,
 		})
 	if err != nil {
 		log.Println("error publishing message:", err)
@@ -98,7 +92,7 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 			log.Println("error cancelling consumer:", err)
 		}
 		ch.Close()
-		log.Println("unsubscribed from topic", room.Name)
+		fmt.Println("unsubscribed from topic", room.Name)
 	}()
 
 	q, err := configureQueue(ch, room.Name)
@@ -121,7 +115,7 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 		return
 	}
 
-	fmt.Printf(" [*] %s waiting for messages.", room.Name)
+	fmt.Printf(" [*] %s waiting for messages.\n", room.Name)
 
 	for {
 		select {
