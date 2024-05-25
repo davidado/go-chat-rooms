@@ -3,6 +3,7 @@ package pubsub
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -120,7 +121,7 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 		return
 	}
 
-	log.Printf(" [*] %s waiting for messages.", room.Name)
+	fmt.Printf(" [*] %s waiting for messages.", room.Name)
 
 	for {
 		select {

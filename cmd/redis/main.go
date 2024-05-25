@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -41,7 +42,7 @@ func initRedis(ctx context.Context, conn *redis.Client) {
 	if err := conn.Ping(ctx).Err(); err != nil {
 		log.Fatal("unable to ping Redis:", err)
 	}
-	log.Println("successfully connected to Redis")
+	fmt.Println("successfully connected to Redis")
 }
 
 func main() {

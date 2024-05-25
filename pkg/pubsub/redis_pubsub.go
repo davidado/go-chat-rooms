@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/davidado/go-chat-rooms/service/chat"
@@ -51,7 +52,7 @@ func (ps *RedisPubSub) SubscribeAndBroadcast(room *chat.Room) {
 		log.Println("unsubscribed from topic", room.Name)
 	}()
 
-	log.Printf(" [*] %s waiting for messages.", room.Name)
+	fmt.Printf(" [*] %s waiting for messages.", room.Name)
 
 	for {
 		select {

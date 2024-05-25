@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"log"
 )
 
@@ -128,7 +129,7 @@ func (r *Room) Broadcast(m Message) {
 		case c.send <- m:
 		default:
 			r.Clients.Remove(c)
-			log.Println(c.name, "left the room")
+			fmt.Println(c.name, "left the room")
 		}
 	}
 }
