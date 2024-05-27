@@ -7,21 +7,17 @@ import (
 	"log"
 	"time"
 
-	"github.com/davidado/go-chat-rooms/service/chat"
-
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // RabbitMQPubSub is a Redis client for publishing and subscribing messages.
 type RabbitMQPubSub struct {
-	ctx  context.Context
 	conn *amqp.Connection
 }
 
 // NewRabbitMQPubSub creates a new RabbitMQPubSub client.
-func NewRabbitMQPubSub(ctx context.Context, conn *amqp.Connection) *RabbitMQPubSub {
+func NewRabbitMQPubSub(conn *amqp.Connection) *RabbitMQPubSub {
 	return &RabbitMQPubSub{
-		ctx:  ctx,
 		conn: conn,
 	}
 }
@@ -42,7 +38,7 @@ func configureQueue(ch *amqp.Channel, topic string) (*amqp.Queue, error) {
 }
 
 // Publish publishes a message to a topic.
-func (ps *RabbitMQPubSub) Publish(topic string, msg []byte) error {
+func (ps *RabbitMQPubSub) Publish(ctx context.Context, topic string, msg []byte) error {
 	ch, err := ps.conn.Channel()
 	if err != nil {
 		log.Println("error creating channel:", err)
@@ -56,7 +52,7 @@ func (ps *RabbitMQPubSub) Publish(topic string, msg []byte) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(ps.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	err = ch.PublishWithContext(
@@ -76,10 +72,9 @@ func (ps *RabbitMQPubSub) Publish(topic string, msg []byte) error {
 	return nil
 }
 
-// SubscribeAndBroadcast listens to a room (topic) for incoming messages
-// then broadcasts them to the room. SubscribeAndBroadcast should only
-// run once per room.
-func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
+// Subscribe listens to a topic for incoming messages
+// then sends it back through a payload channel.
+func (ps *RabbitMQPubSub) Subscribe(ctx context.Context, topic string, payload chan []byte) {
 	ch, err := ps.conn.Channel()
 	if err != nil {
 		log.Println("error creating channel:", err)
@@ -87,15 +82,15 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 	}
 
 	defer func() {
-		err := ch.Cancel(room.Name, false)
+		err := ch.Cancel(topic, false)
 		if err != nil {
 			log.Println("error cancelling consumer:", err)
 		}
 		ch.Close()
-		fmt.Println("unsubscribed from topic", room.Name)
+		fmt.Println("unsubscribed from topic", topic)
 	}()
 
-	q, err := configureQueue(ch, room.Name)
+	q, err := configureQueue(ch, topic)
 	if err != nil {
 		log.Println("error declaring queue:", err)
 		return
@@ -115,21 +110,14 @@ func (ps *RabbitMQPubSub) SubscribeAndBroadcast(room *chat.Room) {
 		return
 	}
 
-	fmt.Printf(" [*] %s waiting for messages.\n", room.Name)
+	fmt.Printf(" [*] %s waiting for messages.\n", topic)
 
 	for {
 		select {
-		case <-room.Done:
+		case <-ctx.Done():
 			return
 		case d := <-msgs:
-			msg := chat.Message{}
-			err = msg.Unmarshal(d.Body)
-			if err != nil {
-				log.Print("error unmarshalling message:", err)
-				continue
-			}
-
-			room.Broadcast(msg)
+			payload <- d.Body
 		}
 	}
 }

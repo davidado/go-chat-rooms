@@ -79,8 +79,8 @@ func (c *Client) ReadSocket() {
 			break
 		}
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		msg := NewMessage(c.room.Name, c.name, message, MessageAction)
-		c.room.broadcast <- msg
+		msg := NewMessage(c.room.name, c.name, message, MessageAction)
+		c.room.clientMsg <- msg
 	}
 }
 
@@ -110,7 +110,7 @@ func (c *Client) WriteSocket() {
 			// in the room update their existing participant lists
 			// by tracking the join and leave actions.
 			if message.Sender == c.name && message.Action == JoinAction {
-				message.SetParticipants(c.room.Clients)
+				message.SetParticipants(c.room.clients)
 			}
 
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))

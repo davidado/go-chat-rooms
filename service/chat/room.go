@@ -1,55 +1,65 @@
 package chat
 
 import (
-	"fmt"
+	"context"
 	"log"
 )
 
 // PubSubber is an interface for subscribing to a room and
 // publishing messages to it.
 type PubSubber interface {
-	Publish(topic string, msg []byte) error
-	SubscribeAndBroadcast(room *Room)
+	Publish(ctx context.Context, topic string, msg []byte) error
+	Subscribe(ctx context.Context, topic string, payload chan []byte)
 }
 
 // Room maintains the set of active clients and broadcasts messages to them.
 type Room struct {
-	// Name of the room.
-	Name string
+	// The context of the room.
+	ctx context.Context
 
-	// Clients in the room.
-	Clients *Clients
+	// The cancel function for the room context.
+	cancel context.CancelFunc
 
-	// PubSubber for the room.
-	Pubsub PubSubber
+	// name of the room.
+	name string
+
+	// The pubsub system for the room.
+	pubsub PubSubber
+
+	// clients in the room.
+	clients *Clients
+
+	// Messages from the pubsub subscriber.
+	pbPayload chan []byte
 
 	// Inbound messages from the clients.
-	broadcast chan Message
+	clientMsg chan Message
 
 	// register requests from clients.
 	register chan *Client
 
 	// unregister requests from clients.
 	unregister chan *Client
-
-	// Done channel lets the pubsub SubscribeAndBroadcast
-	// goroutine know to close.
-	// Don't use a done channel in pubsub since it is
-	// only initialized once in main.
-	Done chan struct{}
 }
 
 // NewRoom creates a new room.
-func NewRoom(name string, clients *Clients, pubsub PubSubber) *Room {
+func NewRoom(ctx context.Context, cancel context.CancelFunc, name string, pubsub PubSubber) *Room {
 	return &Room{
-		Name:       name,
-		Clients:    clients,
-		Pubsub:     pubsub,
-		broadcast:  make(chan Message),
+		ctx:        ctx,
+		cancel:     cancel,
+		name:       name,
+		pubsub:     pubsub,
+		clients:    NewClients(name),
+		pbPayload:  make(chan []byte),
+		clientMsg:  make(chan Message),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		Done:       make(chan struct{}),
 	}
+}
+
+// Subscribe subscribes to the pubsub topic for each room.
+func (r *Room) Subscribe() {
+	go r.pubsub.Subscribe(r.ctx, r.name, r.pbPayload)
 }
 
 // Run runs the room.
@@ -64,83 +74,113 @@ func (r *Room) Run(rooms *Rooms) {
 		select {
 		case c := <-r.register:
 			// Add the client to the room.
-			r.Clients.Add(c)
+			r.clients.Add(c)
 
 			// Broadcast a message to the room that a new client has entered.
 			// If the client is the first one in the room, don't broadcast
 			// through the pubsub system since it hasn't fully initialized yet.
 			// Use the local broadcast channel instead.
-			r.broadcastNewClientEntry(c)
+			r.broadcastNewClientEntry(r.ctx, c, r.pubsub)
 		case c := <-r.unregister:
 			// Remove the client from the room.
-			r.Clients.Remove(c)
+			r.clients.Remove(c)
 
 			// Broadcast a message to the room that a client has left.
-			r.broadcastClientExit(c)
+			r.broadcastClientExit(r.ctx, c, r.pubsub)
 
 			// End this goroutine when this client leaves.
 			return
-		case msg := <-r.broadcast:
-			// Broadcast the message to the room.
+		case msg := <-r.clientMsg:
+			// Publish the client message to the pubsub topic.
 			b, err := msg.Marshal()
 			if err != nil {
 				log.Println("Run - error marshalling message:", err)
 			}
-			err = r.Pubsub.Publish(r.Name, b)
+			err = r.pubsub.Publish(r.ctx, r.name, b)
 			if err != nil {
 				log.Println("Run - error publishing message:", err)
 			}
+		case b := <-r.pbPayload:
+			// Broadcast the message from the pubsub subscriber to
+			// each client in the room.
+			r.Broadcast(b)
 		}
 	}
 }
 
 func (r *Room) closeIfEmpty(rooms *Rooms) {
-	if r.Clients.NumClients() > 0 {
+	if r.clients.NumClients() > 0 {
 		return
 	}
-	close(r.Done)
-	rooms.Remove(r.Name)
+
+	r.cancel()
+	rooms.Remove(r.name)
 }
 
-func (r *Room) broadcastClientExit(c *Client) {
-	m := NewMessage(r.Name, c.name, []byte(""), LeaveAction)
+func (r *Room) broadcastClientExit(ctx context.Context, c *Client, pb PubSubber) {
+	if r.clients.NumClients() == 0 {
+		// Don't broadcast an exit message to the room
+		// for the last client that leaves.
+		// Not only is this unnecessary, but it also
+		// conflicts with the ctx.Done() check in the
+		// Subscribe method of pubsub resulting in
+		// non-deterministic behavior and a leaky
+		// goroutine. The Subscribe method only either
+		// detected the broadcasted exit message or
+		// the ctx.Done() signal, but not both.
+		// Ask me how many hours it took to figure
+		// out why the Subscribe goroutine only
+		// exited sometimes.
+		return
+	}
+
+	m := NewMessage(r.name, c.name, []byte(""), LeaveAction)
 	b, err := m.Marshal()
 	if err != nil {
 		log.Println("broadcastClientExit - error marshalling message:", err)
 	}
-	err = r.Pubsub.Publish(r.Name, b)
+	err = pb.Publish(ctx, r.name, b)
 	if err != nil {
 		log.Println("broadcastClientExit - error publishing message:", err)
 	}
 }
 
-func (r *Room) broadcastNewClientEntry(c *Client) {
-	m := NewMessage(r.Name, c.name, []byte(""), JoinAction)
-	if r.Clients.NumClients() == 1 {
+func (r *Room) broadcastNewClientEntry(ctx context.Context, c *Client, pb PubSubber) {
+	m := NewMessage(r.name, c.name, []byte(""), JoinAction)
+	if r.clients.NumClients() == 1 {
 		// If the client is the first one in the room,
 		// there is no need to broadcast to the pubsub
 		// topic so just use the local broadcast channel.
-		r.Broadcast(m)
+		r.BroadcastMessage(m)
 	} else {
 		b, err := m.Marshal()
 		if err != nil {
 			log.Println("broadcastNewClientEntry - error marshalling message:", err)
 		}
-		err = r.Pubsub.Publish(r.Name, b)
+		err = pb.Publish(ctx, r.name, b)
 		if err != nil {
 			log.Println("broadcastNewClientEntry - error publishing message:", err)
 		}
 	}
 }
 
-// Broadcast sends a message to all clients in the room.
-func (r *Room) Broadcast(m Message) {
-	for c := range r.Clients.GetClients() {
+// BroadcastMessage sends a message to all clients in the room.
+func (r *Room) BroadcastMessage(m Message) {
+	for c := range r.clients.GetClients() {
 		select {
 		case c.send <- m:
-		default:
-			r.Clients.Remove(c)
-			fmt.Println(c.name, "left the room")
 		}
 	}
+}
+
+// Broadcast sends a message to all clients in the room.
+func (r *Room) Broadcast(msg []byte) {
+	m := Message{}
+	err := m.Unmarshal(msg)
+	if err != nil {
+		log.Print("Broadcast - error unmarshalling message:", err)
+		return
+	}
+
+	r.BroadcastMessage(m)
 }
